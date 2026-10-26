@@ -1,0 +1,54 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-white: #FFFFFF;
+    --color-paper: #F6F8F5;
+    --color-mint: #E4F7EB;
+    --color-sage: #9EDBB3;
+    --color-green: #1DB954;
+    --color-forest: #0D2B1F;
+    --color-ink: #0B1E16;
+  }
+
+  body {
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+    font-family: 'Schibsted Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+    margin: 0;
+    padding: 0;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Young Serif', Georgia, serif;
+    color: var(--color-forest);
+    font-weight: 400;
+    letter-spacing: -0.01em;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Custom scrollbar matching palette */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #F6F8F5;
+}
+::-webkit-scrollbar-thumb {
+  background: #93B49B;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #1DB954;
+}

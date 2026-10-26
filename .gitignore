@@ -1,0 +1,39 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Dependencies
+node_modules/
+
+# Production build output
+dist/
+dist-ssr/
+
+# Vite Cache
+.vite/
+
+# Temporary and local files
+*.local
+.tempmediaStorage/
+0b48ccfc*
+Gemini_Generated_Image*
+
+# Editor & OS files
+.DS_Store
+Thumbs.db
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Environment files
+.env
+.env.*
+!.env.example
