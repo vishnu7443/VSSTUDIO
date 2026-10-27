@@ -1,7 +1,14 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+const rawUrl = (import.meta.env.VITE_SUPABASE_URL || 'https://iizveigisatnewcoeuwa.supabase.co').trim();
+const rawKey = (
+  import.meta.env.VITE_SUPABASE_ANON_KEY ||
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlpenZlaWdpc2F0bmV3Y29ldXdhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMwOTI1MDYsImV4cCI6MjEwODY2ODUwNn0.sCfUNVUXr4Ms16Dwr9wwFyv1vNaWVkotXd97TrtK9dY'
+).trim();
+
+// Strip any trailing accidental placeholder text like '.your-anon-key-here'
+export const supabaseUrl = rawUrl;
+export const supabaseAnonKey = rawKey.replace(/\.your-anon-key-here.*$/i, '').trim();
 
 export const isSupabaseConfigured =
   Boolean(supabaseUrl) &&
@@ -10,8 +17,8 @@ export const isSupabaseConfigured =
   !supabaseUrl.includes('placeholder');
 
 export const supabase = createClient(
-  supabaseUrl || 'https://placeholder.supabase.co',
-  supabaseAnonKey || 'placeholder-anon-key',
+  supabaseUrl,
+  supabaseAnonKey,
   {
     auth: {
       persistSession: false,
@@ -19,3 +26,4 @@ export const supabase = createClient(
     },
   }
 );
+
