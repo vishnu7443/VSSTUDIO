@@ -37,3 +37,6 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+# Management Dashboard (Separate Project & Git Repo)
+vs_dash-main/

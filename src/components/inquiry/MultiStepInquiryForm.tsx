@@ -7,12 +7,15 @@ import {
   Trash2, 
   FileText, 
   CheckCircle2, 
-  Sparkles,
-  AlertCircle
+  Sparkles, 
+  AlertCircle,
+  Loader2
 } from 'lucide-react';
 import { InquiryFormData } from '../../types/inquiry';
+import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 
 const STORAGE_KEY = 'vs_inquiry_draft';
+const ADMIN_MOCK_STORAGE_KEY = 'vs_studio_inquiries';
 
 const initialFormData: InquiryFormData = {
   services: [],
@@ -38,7 +41,9 @@ export const MultiStepInquiryForm: React.FC = () => {
     }
   });
 
+  const [rawFiles, setRawFiles] = useState<File[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
 
@@ -69,6 +74,13 @@ export const MultiStepInquiryForm: React.FC = () => {
     'Flexible timeline',
   ];
 
+  const mapServiceType = (services: string[]): string => {
+    if (services.some((s) => s.toLowerCase().includes('web'))) return 'website_design_dev';
+    if (services.some((s) => s.toLowerCase().includes('logo') || s.toLowerCase().includes('brand'))) return 'logo_branding';
+    if (services.some((s) => s.toLowerCase().includes('ai') || s.toLowerCase().includes('automation'))) return 'ai_agents_automation';
+    return 'website_design_dev';
+  };
+
   const toggleService = (service: string) => {
     setFormData((prev) => {
       const exists = prev.services.includes(service);
@@ -84,21 +96,24 @@ export const MultiStepInquiryForm: React.FC = () => {
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const uploadedFiles = e.target.files;
-    if (!uploadedFiles) return;
+    if (!uploadedFiles || uploadedFiles.length === 0) return;
 
-    const newFiles = Array.from(uploadedFiles).map((file) => ({
+    const filesArray = Array.from(uploadedFiles);
+    const newFileMeta = filesArray.map((file) => ({
       name: file.name,
       size: file.size,
       type: file.type || 'application/octet-stream',
     }));
 
+    setRawFiles((prev) => [...prev, ...filesArray]);
     setFormData((prev) => ({
       ...prev,
-      files: [...prev.files, ...newFiles],
+      files: [...prev.files, ...newFileMeta],
     }));
   };
 
   const removeFile = (index: number) => {
+    setRawFiles((prev) => prev.filter((_, i) => i !== index));
     setFormData((prev) => ({
       ...prev,
       files: prev.files.filter((_, i) => i !== index),
@@ -148,11 +163,13 @@ export const MultiStepInquiryForm: React.FC = () => {
 
   const prevStep = () => {
     setErrors({});
+    setSubmitError(null);
     setStep((prev) => Math.max(prev - 1, 1));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitError(null);
 
     // Honeypot anti-spam check
     if (formData.honeypot) {
@@ -164,17 +181,100 @@ export const MultiStepInquiryForm: React.FC = () => {
 
     setIsSubmitting(true);
 
-    // Simulate submission (In Phase 2, connects to Supabase client & Edge function)
-    setTimeout(() => {
-      setIsSubmitting(false);
-      setIsSuccess(true);
+    try {
+      const uploadedFilePaths: string[] = [];
+      const serviceType = mapServiceType(formData.services);
+      const fullRequirements = `Services: ${formData.services.join(', ')}\n\nProject Scope:\n${formData.description.trim()}`;
+
+      // 1. Upload files to private Supabase Storage bucket 'client-files' if configured
+      if (isSupabaseConfigured && rawFiles.length > 0) {
+        for (const file of rawFiles) {
+          const sanitized = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+          const filePath = `inquiries/${Date.now()}-${Math.random().toString(36).substring(7)}-${sanitized}`;
+
+          const { error: uploadError } = await supabase.storage
+            .from('client-files')
+            .upload(filePath, file);
+
+          if (!uploadError) {
+            uploadedFilePaths.push(filePath);
+          } else {
+            console.warn('File storage upload warning (continuing with inquiry):', uploadError);
+          }
+        }
+      }
+
+      // 2. Submit to Supabase public.inquiries table
+      if (isSupabaseConfigured) {
+        const { error: insertError } = await supabase.from('inquiries').insert([
+          {
+            name: formData.clientName.trim(),
+            email: formData.clientEmail.trim().toLowerCase(),
+            phone: null,
+            company: formData.clientCompany.trim() || null,
+            service_type: serviceType,
+            requirements: fullRequirements,
+            budget_range: formData.budgetRange,
+            deadline: formData.idealDeadline || null,
+            reference_links: formData.referenceLinks.trim() || null,
+            file_urls: uploadedFilePaths,
+            status: 'new',
+          },
+        ]);
+
+        if (insertError) {
+          throw new Error(`Database error: ${insertError.message}`);
+        }
+      }
+
+      // 3. Also update local storage mock feed so admin dashboard can sync immediately in dev/local mode
+      try {
+        const stored = localStorage.getItem(ADMIN_MOCK_STORAGE_KEY);
+        const existingInquiries = stored ? JSON.parse(stored) : [];
+        const newLocalRecord = {
+          id: `inq-${Date.now()}`,
+          name: formData.clientName.trim(),
+          email: formData.clientEmail.trim().toLowerCase(),
+          phone: null,
+          company: formData.clientCompany.trim() || null,
+          service_type: serviceType,
+          requirements: fullRequirements,
+          budget_range: formData.budgetRange,
+          deadline: formData.idealDeadline || null,
+          reference_links: formData.referenceLinks.trim() || null,
+          file_urls: uploadedFilePaths.length > 0 ? uploadedFilePaths : formData.files.map((f) => f.name),
+          status: 'new',
+          assigned_to: null,
+          notes: null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+        localStorage.setItem(
+          ADMIN_MOCK_STORAGE_KEY,
+          JSON.stringify([newLocalRecord, ...existingInquiries])
+        );
+      } catch {
+        // Ignore local storage error
+      }
+
+      // Cleanup
       localStorage.removeItem(STORAGE_KEY);
-    }, 900);
+      setRawFiles([]);
+      setIsSuccess(true);
+    } catch (err: unknown) {
+      console.error('Inquiry submission error:', err);
+      const msg = err instanceof Error ? err.message : 'Failed to transmit inquiry to server.';
+      setSubmitError(`${msg} You can also email us directly at vsstudioai@gmail.com.`);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const resetForm = () => {
     setFormData(initialFormData);
+    setRawFiles([]);
     setIsSuccess(false);
+    setSubmitError(null);
     setStep(1);
     setErrors({});
   };
@@ -209,7 +309,7 @@ export const MultiStepInquiryForm: React.FC = () => {
               Inquiry received
             </h3>
             <p className="text-ink/80 text-sm sm:text-base max-w-md mx-auto leading-relaxed">
-              Thank you, {formData.clientName}. Both studio founders have been alerted. We review all submissions within 24 business hours.
+              Thank you, {formData.clientName}. Both studio founders (Vishnu Vardhan & Sriram) have been notified in our management dashboard. We review all submissions within 24 business hours.
             </p>
           </div>
 
@@ -217,8 +317,11 @@ export const MultiStepInquiryForm: React.FC = () => {
             <p className="font-medium">Summary of submission:</p>
             <p className="text-ink/80">• Services: {formData.services.join(', ')}</p>
             <p className="text-ink/80">• Budget bracket: {formData.budgetRange}</p>
-            <p className="text-ink/80">• Deadline: {formData.idealDeadline}</p>
+            <p className="text-ink/80">• Target launch: {formData.idealDeadline}</p>
             <p className="text-ink/80">• Contact email: {formData.clientEmail}</p>
+            {formData.files.length > 0 && (
+              <p className="text-ink/80">• Attachments: {formData.files.length} file(s) attached</p>
+            )}
           </div>
 
           <button
@@ -573,10 +676,18 @@ export const MultiStepInquiryForm: React.FC = () => {
                 </div>
               </div>
 
+              {/* Submit Error Banner if any */}
+              {submitError && (
+                <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-xs text-red-800 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                  <span>{submitError}</span>
+                </div>
+              )}
+
               <div className="p-3.5 rounded-xl bg-mint/40 border border-sage/50 text-xs text-forest flex items-start gap-2">
                 <Sparkles className="w-4 h-4 text-green shrink-0 mt-0.5" />
                 <span>
-                  Your draft is auto-saved locally. Submitting alerts both founders for immediate review.
+                  Your draft is auto-saved locally. Submitting transmits directly to our management dashboard for immediate review.
                 </span>
               </div>
             </div>
@@ -589,7 +700,8 @@ export const MultiStepInquiryForm: React.FC = () => {
                 type="button"
                 id="inquiry-prev-button"
                 onClick={prevStep}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full border border-sage text-forest hover:bg-mint/40 active:scale-95 text-sm font-medium transition-all"
+                disabled={isSubmitting}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full border border-sage text-forest hover:bg-mint/40 active:scale-95 text-sm font-medium transition-all disabled:opacity-50"
               >
                 <ArrowLeft className="w-4 h-4" />
                 <span>Back</span>
@@ -613,10 +725,13 @@ export const MultiStepInquiryForm: React.FC = () => {
                 type="submit"
                 id="inquiry-submit-button"
                 disabled={isSubmitting}
-                className="inline-flex items-center gap-2 px-7 py-3 rounded-full bg-green text-white hover:bg-green-dark active:scale-95 text-sm font-medium transition-all shadow-sm disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-7 py-3 rounded-full bg-green text-white hover:bg-green-dark active:scale-95 text-sm font-medium transition-all shadow-sm disabled:opacity-60"
               >
                 {isSubmitting ? (
-                  <span>Submitting inquiry...</span>
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Transmitting brief...</span>
+                  </>
                 ) : (
                   <>
                     <span>Submit inquiry</span>
